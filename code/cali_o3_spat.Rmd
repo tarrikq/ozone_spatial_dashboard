@@ -1,0 +1,277 @@
+---
+title: "Analysis of Historic Ozone Concentration in California"
+author: "<h3>Tarrik Quneibi</h3>"
+date: "`r format(Sys.time(), '%B %Y')`"
+output:
+  html_document:
+    theme: journal
+    highlight: tango
+    toc: true
+    number_sections: true
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    code_folding: show
+    self_contained: yes
+---
+
+```{r setup, include=FALSE, message=FALSE,warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library, echo=FALSE, message=FALSE,warning=FALSE}
+library(rvest)
+library(sp)
+library(leaflet)
+library(leaflet.extras)
+library(sf)
+library(lubridate)
+library(tidyverse)
+library(plotly)
+library(gganimate)
+library(kableExtra)
+```
+
+# Background
+Groundlevel ozone formation mostly occurs when nitrogen oxides (NOx), carbon monoxide (CO), and volatile organic compounds (VOCs), react in the atmosphere in the presence of UV (sunlight). Motor vehicle exhaust, industrial emissions, and chemical solvents are the major sources of these pollutants in urban areas, although winds can carry NOx hundreds of kilometers, causing ozone formation to occur in less populated regions as well. 
+Ground level ozone can be harmful to human health in higher concentrations with the NIOSH recommended exposure limit for ozone to be 0.1 ppm (0.2 mg/m3).
+
+```{r data input, echo=FALSE, message=FALSE,warning=FALSE}
+ozone_url <- "https://wiki.socr.umich.edu/index.php/SOCR_Data_121608_CA_US_OzoneData"
+wiki_ozone <- read_html(ozone_url) # UCLA SOCR Data
+ozone_data <- as.data.frame(html_table(html_nodes(wiki_ozone, "table")[[1]]), header = FALSE)
+
+global_temp <- read_csv("C:/Users/Tarri/Desktop/portfolio_projects/alaska_census_spat/data/global_temp.csv")
+
+ozone_yr_url <- "https://wiki.socr.umich.edu/index.php/SOCR_Data_121608_OzoneData"
+wiki_ozone_yr <- read_html(ozone_yr_url) # UCLA SOCR Data
+ozone_yr_data <- as.data.frame(html_table(html_nodes(wiki_ozone_yr, "table")[[1]]), header = FALSE)
+```
+
+# California Ozone Data
+Taking a look at the California ozone data in 2005 from the California Air Resources Board (CARB), we see that the data are composed of date, location, concentration, and spatial geometry columns. This spatial geometry data allows us to use GIS mapping packages, such as leaflet used here, to plot our data across a spatial area.
+
+```{r convert to spatial df, echo=FALSE, message=FALSE,warning=FALSE}
+ozone_spat <- st_as_sf(ozone_data, coords = c("Longitude","Latitude") , crs = 4326) 
+kable(ozone_spat, "html", caption="California Ozone Concentration Data") %>%
+    kable_styling() %>%
+    scroll_box(width = "100%", height = "500px")
+
+```
+
+# Ozone Density
+Plotting the density shows that the average concentration of ozone is about 0.065, and has multiple peaks, such as at concentrations of 0.036,0.059, and 0.079. This likely helps to establish the average since both high peaks are on either side of the mean.
+```{r density, echo=FALSE, message=FALSE,warning=FALSE}
+
+p1<-ggplot(ozone_spat, aes(x=O3)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="white")+
+  geom_density(alpha=.2, fill="#56B4E9") +
+  labs(x="Ozone Concentration(ppm)",y="Density")+
+  theme(axis.text=element_text(size=12), axis.title=element_text(size=14))
+ggplotly(p1)
+
+```
+
+# Interactive Spatial Map
+Plotting the ozone concentration data in leaflet and overlaying a heatmap shows that the highest concentrations of ozone occur in the Loas Angeles, and Sacramento areas. 
+```{r plot map,echo=FALSE, message=FALSE,warning=FALSE}
+
+pal <- colorBin("Spectral", domain = ozone_spat$O3, bins = seq(0,max(ozone_spat$O3),length.out=6), na.color = "transparent",reverse=TRUE)
+
+ozone_spat %>%
+  leaflet() %>% 
+  addTiles() %>% 
+  addProviderTiles(providers$OpenStreetMap.DE) %>% 
+  addHeatmap(lng = ozone_data$Longitude, lat=ozone_data$Latitude, intensity=~O3) %>%
+  addLegend(pal = pal, values = ~O3, group = "circles", position = "bottomleft")
+
+
+
+```
+
+# Surface map
+To get a different look on the spatial ozone concentration, a kernel density plot was created. This shows the two high concentration areas as the previous plot (Los Angeles, and Sacramento), but also gives a better picture of the areas around the two cities. Looking a the two peaks, we can see that one peak (Sacramento) tapers off quickly as we move away, while the other peak (Los Angeles) tapers off more gradually.
+```{r surface plot, echo=FALSE, message=FALSE,warning=FALSE}
+
+ozone_surf <- ozone_data %>%
+  select(c("O3","Longitude","Latitude"))
+
+kernal_density <- with(ozone_surf, MASS::kde2d(Longitude, Latitude, n = 50))
+with(kernal_density, plot_ly(x=x, y=y, z=z, type="surface")%>% layout(scene = list( 
+                       xaxis = list(title = 'Longitude'), 
+                       yaxis = list(title = 'Latitude'),
+                       zaxis = list(title = "Ozone probability density")
+                       )))
+
+  
+```
+
+# Historic Ozone Concentration Data
+To see how the ozone concentration has changed over time, historic data from  the California Air Resources Board (CARB) was used along with global temperature anomaly data from NASA. Looking at the data table below, we see that the data consists of date, location, annual average ozone concentration, latitude, longitude, ground elevation, and the temperature change columns. 
+```{r animation, echo=FALSE, message=FALSE,warning=FALSE}
+
+global_temp <- global_temp %>%
+  rename("Date"="Year")
+global_temp$Date <- paste(global_temp$Date , "-01-01", sep="")
+global_temp$Date <- ymd(global_temp$Date)
+global_temp$Date <-  format(as.Date(global_temp$Date, format="%d/%m/%Y"),"%Y")
+
+ozone_yr_data <- ozone_yr_data %>%
+  rename("Date"="YEAR")
+ozone_yr_data$Date <- paste(ozone_yr_data$Date , "-01-01", sep="")
+ozone_yr_data$Date <- ymd(ozone_yr_data$Date)
+ozone_yr_data$Date <-  format(as.Date(ozone_yr_data$Date, format="%d/%m/%Y"),"%Y")
+
+ozone_temp <- merge( ozone_yr_data, global_temp, by="Date")
+ozone_temp <- subset(ozone_temp, ANNUAL < 5)
+ozone_lin <- ozone_temp
+ozone_temp <- ozone_temp %>%
+  select(c("Date","LOCATION","ANNUAL","LATITUDE","LONGITUDE","ELEVATION","Lowess"))
+
+kable(ozone_temp, "html", caption="California Ozone Concentration and Global Temperature Anomaly Data") %>%
+    kable_styling() %>%
+    scroll_box(width = "100%", height = "500px")
+
+```
+
+# Ozone concentration Vs. Global Temperature over time
+The animated plot below shows how the ozone concentration and global temperature has changed over time. This shows that on average the overall ozone concentration and range has decreased even though the global temperature has steadily increased. 
+```{r plotly, echo=FALSE, message=FALSE,warning=FALSE}
+
+ozone_temp %>%
+  plot_ly(
+    x = ~ANNUAL, 
+    y = ~Lowess,
+    color = ~LOCATION,
+    frame = ~Date,
+    type = 'scatter',
+    mode="markers"
+  ) %>%
+  layout(
+         xaxis = list(title = 'Annual Average Ozone Concentration (ppm)',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         yaxis = list(title = 'Temperature Anomaly (C)',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         plot_bgcolor='#e5ecf6')
+```
+
+# Ozone Concentration Over Time
+We saw previously that the annual average ozone concentration was decreasing and becoming less sparse over time. To see how the concentration at all locations has changed over time, the scatterplot below was created. This shows a steeps decrease in ozone concentration from the year 1980 to 2000, with a plateau from 2000 to 2005.
+```{r boxplot, echo=FALSE, message=FALSE,warning=FALSE}
+ozone_box <- ozone_temp %>%
+  select(c("LOCATION","ANNUAL", "Date")) 
+ozone_box$LOCATION <- as.character(ozone_box$LOCATION)
+ozone_box$Date <- as.numeric(ozone_box$Date)
+
+
+plot_ly(ozone_box, x = ~Date, y = ~ANNUAL, color = ~LOCATION, type = "scatter") %>%
+  layout(legend = list(title = list(text = "Station")),
+         xaxis = list(title = 'Date',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         yaxis = list(title = 'Annual Average Ozone Concentration (ppm)',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         plot_bgcolor='#e5ecf6')
+
+```
+
+
+```{r linear model, echo=FALSE, message=FALSE,warning=FALSE}
+set.seed(42)
+ozone_lin$Date <- as.numeric(ozone_lin$Date)
+
+# Generate 90-10% training-testing split of the reviews
+all_ids = ozone_lin$INDEX
+train_ids = sample(all_ids, length(ozone_lin$INDEX)*0.8)
+test_ids = setdiff(all_ids, train_ids)
+train <- ozone_lin[ozone_lin$INDEX %in% train_ids , ]
+test <- ozone_lin[ozone_lin$INDEX %in% test_ids, ]
+
+train <- train%>%
+  select(-c("INDEX","LOCATION","VARIABLE","COMP_SITES"))
+test1 <- test %>%
+  select(-c("ANNUAL","INDEX","LOCATION","VARIABLE","COMP_SITES"))
+
+
+# Train the model using the training sets and check score
+set.seed(42)
+linear <- lm(ANNUAL ~ ., data = train)
+kable(head(ozone_lin), "html", caption="Summary of linear model statistics") %>%
+     kable_styling() %>%
+     scroll_box(width = "100%", height = "500px")
+r_sqr <- round(summary(linear)$r.squared, 2)
+
+#Predict Output
+predicted= predict(linear,test1)
+
+# Build a dataframe of values from predicted outcomes and actual outcomes
+df <- data.frame(predicted, test$Date, test$ANNUAL)
+df$error <- abs(((df$predicted-df$test.ANNUAL)/df$test.ANNUAL))
+df$accuracy <- 1-df$error
+df <- df%>%
+  rename(c("Actual"="test.ANNUAL","Date"="test.Date"))
+accuracy <- round(mean(df$accuracy),2)
+
+```
+
+
+# Predictive model
+Since the ozone concentration appears to be decreasing linearly with time, a linear model was trained to predict ozone concentration. The training data was created using a 80 random split of the historic ozone data. You can test this model out yourself using your own data, just upload a csv file of data with columns like the table shown above! You can also use the historic testing data by clicking submit without uploading. The r-squared value for the trained model is `r r_sqr` The average model accuracy for this data is `r accuracy`.
+
+```{r ploting model, echo=FALSE, message=FALSE,warning=FALSE}
+
+plot_ly(df, x = ~Actual, y = ~predicted, type = "scatter") %>%
+  layout(
+         xaxis = list(title = 'Actual ozone concentration (ppm)',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         yaxis = list(title = 'Predicted ozone concentration (ppm)',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         plot_bgcolor='#e5ecf6')
+
+plot_ly(df, x = ~Date, y = ~predicted, type = "scatter") %>%
+  layout(
+         xaxis = list(title = 'Date',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         yaxis = list(title = 'Predicted ozone concentration (ppm)',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         plot_bgcolor='#e5ecf6')
+
+```
+
+```{r predictions, echo=FALSE, message=FALSE,warning=FALSE}
+kable(df, "html", caption="Predicted Ozone concentrations over time") %>%
+     kable_styling() %>%
+     scroll_box(width = "100%", height = "500px")
+
+
+
+
+
+
+```
+
+
+
+```{r}
+
+
+
+df <- cbind(predicted, test$ANNUAL)
+df
+```
