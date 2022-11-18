@@ -31,6 +31,8 @@ library(tidyverse)
 library(plotly)
 library(gganimate)
 library(kableExtra)
+library(tibble)
+
 ```
 
 # Background
@@ -42,11 +44,34 @@ ozone_url <- "https://wiki.socr.umich.edu/index.php/SOCR_Data_121608_CA_US_Ozone
 wiki_ozone <- read_html(ozone_url) # UCLA SOCR Data
 ozone_data <- as.data.frame(html_table(html_nodes(wiki_ozone, "table")[[1]]), header = FALSE)
 
-global_temp <- read_csv("C:/Users/Tarri/Desktop/portfolio_projects/alaska_census_spat/data/global_temp.csv")
+global_temp <- read_csv("C:/Users/Tarri/Desktop/portfolio_projects/ozone_spat_dashboard/data/global_temp.csv")
 
 ozone_yr_url <- "https://wiki.socr.umich.edu/index.php/SOCR_Data_121608_OzoneData"
 wiki_ozone_yr <- read_html(ozone_yr_url) # UCLA SOCR Data
 ozone_yr_data <- as.data.frame(html_table(html_nodes(wiki_ozone_yr, "table")[[1]]), header = FALSE)
+
+pollutant_data <- read_csv("C:/Users/Tarri/Desktop/portfolio_projects/ozone_spat_dashboard/data/pollutant.csv")
+# pollutants <- c("OZONE","NOX","CO","NO2","NO","SO2","PM25")
+# years <- seq(2010, 2022, by=1)
+# 
+# df <- data.frame()
+# for (pol in pollutants){
+#   for (year in years){
+#     url <- paste("https://www.arb.ca.gov/aqmis2/display.php?param=",pol,"&units=007&statistic=DAVG&year=",year,"&mon=1&day=1&county_name=--COUNTY--&basin=--AIR+BASIN--&latitude=A-Whole+State&report=AREA1YR&order=basin%2Ccounty_name%2Cs.name&submit=Retrieve+Data&ptype=aqd&std15=",sep="")
+#     cal_data <- read_html(url) # UCLA SOCR Data
+#     pol_data <- as.data.frame(html_table(html_nodes(cal_data, "table")[[2]]), header = TRUE)
+#     pol_data <- pol_data[3:34 , 1:13]
+#     names(pol_data) <- pol_data[1,]
+#     pol_data <- pol_data[-1,]
+#     pol_data <- as.data.frame(sapply(pol_data, as.numeric))
+#     month_avg <- colMeans(pol_data[ , 2:13], na.rm = TRUE)
+#     pol_data <- data.frame(concentration = month_avg, year = year, contaminant = pol)
+#     df <- rbind(df, pol_data)
+#   }
+# 
+# }
+# df <- tibble::rownames_to_column(df, "month")
+# write.csv(df, "C:\\Users\\Tarri\\Desktop\\portfolio_projects\\ozone_spat_dashboard\\data\\pollutant.csv")
 ```
 
 # California Ozone Data
@@ -266,6 +291,54 @@ kable(df, "html", caption="Predicted Ozone concentrations over time") %>%
 
 ```
 
+```{r}
+
+set.seed(42)
+library(reshape2)
+# pollutant_data$month <- gsub('[0-9]+', '', pollutant_data$month)
+# 
+# test <- dcast(pollutant_data, month + year ~ contaminant, value.var="concentration")
+
+# Generate 90-10% training-testing split of the reviews
+all_ids = pollutant_data$...1
+train_ids = sample(all_ids, length(pollutant_data$...1)*0.8)
+test_ids = setdiff(all_ids, train_ids)
+train <- pollutant_data[pollutant_data$...1 %in% train_ids , ]
+test <- pollutant_data[pollutant_data$...1 %in% test_ids, ]
+
+train$month <- gsub('[0-9]+', '', train$month)
+train <- dcast(train, month + year ~ contaminant, value.var="concentration")
+
+test$month <- gsub('[0-9]+', '', test$month)
+test <- dcast(test, month + year ~ contaminant, value.var="concentration")
+
+test <-test %>%
+    select(-c("month","year"))
+train <- train%>%
+  select(-c("month","year"))
+test1 <- test %>%
+  select(-c("OZONE"))
+
+
+# Train the model using the training sets and check score
+set.seed(42)
+linear <- lm(OZONE ~ ., data = train)
+kable(head(train), "html", caption="Summary of linear model statistics") %>%
+     kable_styling() %>%
+     scroll_box(width = "100%", height = "500px")
+r_sqr <- round(summary(linear)$r.squared, 2)
+
+#Predict Output
+predicted= predict(linear,test1)
+
+# Build a dataframe of values from predicted outcomes and actual outcomes
+df <- data.frame(predicted, test$Date, test$ANNUAL)
+df$error <- abs(((df$predicted-df$test.ANNUAL)/df$test.ANNUAL))
+df$accuracy <- 1-df$error
+df <- df%>%
+  rename(c("Actual"="test.ANNUAL","Date"="test.Date"))
+accuracy <- round(mean(df$accuracy),2)
+```
 
 
 ```{r}

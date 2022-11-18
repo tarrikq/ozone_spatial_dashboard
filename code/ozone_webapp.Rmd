@@ -18,13 +18,14 @@ library(plotly)
 library(readr)
 library(rvest)
 library(lubridate)
+library(FSA)
 ```
 
 
 
 ```{r data}
-
-global_temp <- read_csv("C:/Users/Tarri/Desktop/portfolio_projects/alaska_census_spat/data/global_temp.csv")
+setwd("C:/Users/Tarri/Desktop/portfolio_projects/ozone_spat_dashboard")
+global_temp <- read_csv("C:/Users/Tarri/Desktop/portfolio_projects/ozone_spat_dashboard/data/global_temp.csv")
 
 ozone_yr_url <- "https://wiki.socr.umich.edu/index.php/SOCR_Data_121608_OzoneData"
 wiki_ozone_yr <- read_html(ozone_yr_url) # UCLA SOCR Data
@@ -53,7 +54,8 @@ train_ids <- sample(all_ids, length(ozone_temp$INDEX)*0.8)
 test_ids <- setdiff(all_ids, train_ids)
 train <- ozone_temp[ozone_temp$INDEX %in% train_ids , ]
 test <- ozone_temp[ozone_temp$INDEX %in% test_ids, ]
-
+ozone_temp <- ozone_temp %>%
+    select(-c("INDEX","LOCATION","VARIABLE","COMP_SITES","No_Smoothing"))
 set.seed(42)
 train <- train%>%
   select(-c("INDEX","LOCATION","VARIABLE","COMP_SITES","No_Smoothing"))
@@ -74,21 +76,21 @@ Column {.sidebar data-width=200}
 ```{r inputs}
  selectInput("variable_choice", label = h5("Choose one or more input variables"), 
              choices = variables, variables[1], multiple = TRUE)
-# sliderInput("slider",label=h5("Choose how the training and testing data is split"),
-#             min =0, max=100, value= 80, step = 10)
+ sliderInput("slider",label=h5("Choose how the training and testing data is split"),
+             min =0, max=100, value= 80, step = 10)
+
 ```
 
 
 ```{r reactive expression}
 model1 <- reactive({
-  #vars <- as.matrix(train[, input$variable_choice])
   set.seed(42)
-  #all_ids <- ozone_temp$INDEX
-
-   #train_ids <- sample(all_ids, length(ozone_temp$INDEX)*(input$slider/100))
-   #train <- ozone_temp[ozone_temp$INDEX %in% train_ids , ]
-   
-   linear <- lm(ANNUAL ~., data = train)
+ train_ids <- sample(all_ids, length(ozone_temp$INDEX)*(input$slider/100))
+ train <- ozone_temp[ozone_temp$INDEX %in% train_ids , ]
+ test <- ozone_temp[ozone_temp$INDEX %in% test_ids, ]
+ test1 <- test %>% select(-c("ANNUAL")) 
+ vars <- as.matrix(train[, input$variable_choice])
+ linear <- lm(ANNUAL ~vars, data = train)
    
 })
 ```
@@ -100,6 +102,12 @@ Column {data-width=400}
 
 ```{r model output}
 renderPrint({ 
+ set.seed(42)
+ train_ids <- sample(all_ids, length(ozone_temp$INDEX)*(input$slider/100))
+ train <- ozone_temp[ozone_temp$INDEX %in% train_ids , ]
+ test <- ozone_temp[ozone_temp$INDEX %in% test_ids, ]
+ test1 <- test %>% select(-c("ANNUAL")) 
+ vars <- as.matrix(train[, input$variable_choice])
 summary(model1())
 
 })
@@ -111,8 +119,12 @@ summary(model1())
 ```{r table}
 
 DT::renderDataTable({
-  #test1 <- as.data.frame(test1[, input$variable_choice])
-
+  set.seed(42)
+ train_ids <- sample(all_ids, length(ozone_temp$INDEX)*(input$slider/100))
+ train <- ozone_temp[ozone_temp$INDEX %in% train_ids , ]
+ test <- ozone_temp[ozone_temp$INDEX %in% test_ids, ]
+ test1 <- test %>% select(-c("ANNUAL")) 
+ vars <- as.matrix(train[, input$variable_choice])
   
    DT::datatable(test1 %>% mutate(predicted = round(predict(model1(),test1), 2 ), actual = test$ANNUAL) %>% select(predicted, actual),
    rownames = FALSE, colnames = c('predicted concentration','actual concentration'), extensions = c('Buttons', 'Responsive'), 
@@ -130,8 +142,12 @@ Column {data-width=400}
 
 ```{r scatter}
 renderPlotly({
-  #test1 <- as.data.frame(test1[, input$variable_choice])
-
+  set.seed(42)
+ train_ids <- sample(all_ids, length(ozone_temp$INDEX)*(input$slider/100))
+ train <- ozone_temp[ozone_temp$INDEX %in% train_ids , ]
+ test <- ozone_temp[ozone_temp$INDEX %in% test_ids, ]
+ test1 <- test %>% select(-c("ANNUAL")) 
+ vars <- as.matrix(train[, input$variable_choice])
   
 plot_ly(data = test1, y = ~predict(model1(),test1), x = ~test$ANNUAL,
                type = "scatter", mode = "markers",
@@ -156,7 +172,12 @@ plot_ly(data = test1, y = ~predict(model1(),test1), x = ~test$ANNUAL,
 
 ```{r histogram}
 renderPlotly({
-  
+    set.seed(42)
+ train_ids <- sample(all_ids, length(ozone_temp$INDEX)*(input$slider/100))
+ train <- ozone_temp[ozone_temp$INDEX %in% train_ids , ]
+ test <- ozone_temp[ozone_temp$INDEX %in% test_ids, ]
+ test1 <- test %>% select(-c("ANNUAL")) 
+ vars <- as.matrix(train[, input$variable_choice])
 
 plot_ly(test, x = ~round(residuals(model1()),2), type = "histogram", marker = list(color = "#EA6345",
                             line = list(color = "#FFFFFF", width = 1))) %>%   layout(title = '',
