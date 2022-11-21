@@ -51,6 +51,11 @@ wiki_ozone_yr <- read_html(ozone_yr_url) # UCLA SOCR Data
 ozone_yr_data <- as.data.frame(html_table(html_nodes(wiki_ozone_yr, "table")[[1]]), header = FALSE)
 
 pollutant_data <- read_csv("C:/Users/Tarri/Desktop/portfolio_projects/ozone_spat_dashboard/data/pollutant.csv")
+```
+
+```{r data pull}
+## This chunk will pull data for the pollutants and the given years. 
+## It will save out the dataframe to a csv that is called in the code above.
 # pollutants <- c("OZONE","NOX","CO","NO2","NO","SO2","PM25")
 # years <- seq(2010, 2022, by=1)
 # 
@@ -300,6 +305,8 @@ library(reshape2)
 # test <- dcast(pollutant_data, month + year ~ contaminant, value.var="concentration")
 
 # Generate 90-10% training-testing split of the reviews
+pollutant_data <- inner_join(pollutant_data)
+
 all_ids = pollutant_data$...1
 train_ids = sample(all_ids, length(pollutant_data$...1)*0.8)
 test_ids = setdiff(all_ids, train_ids)
