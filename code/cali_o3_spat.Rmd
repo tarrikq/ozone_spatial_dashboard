@@ -32,6 +32,7 @@ library(plotly)
 library(gganimate)
 library(kableExtra)
 library(tibble)
+library(zoo)
 
 ```
 
@@ -206,6 +207,79 @@ plot_ly(ozone_box, x = ~Date, y = ~ANNUAL, color = ~LOCATION, type = "scatter") 
                       zerolinewidth = 2,
                       gridcolor = 'ffff'),
          yaxis = list(title = 'Annual Average Ozone Concentration (ppm)',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         plot_bgcolor='#e5ecf6')
+
+```
+
+```{r all polutants}
+poll_data <- pollutant_data
+poll_data$month <- gsub('[[:digit:]]+', ' ', poll_data$month)
+poll_data$month <- str_trim(poll_data$month, side = c("both"))
+poll_data$month <- paste(poll_data$month, "01", sep="-")
+poll_data$time <- paste(poll_data$year,poll_data$month,sep="-")
+poll_data$time <- strptime(poll_data$time,format="%Y-%b-%d")
+poll_data <- poll_data %>% select(-c("month","year","...1"))
+
+pol <- poll_data %>%
+  group_by(time) %>%
+  mutate(id_rows = row_number()) %>%
+  pivot_wider( 
+    id_cols = c(time),
+    names_from = id_rows,
+    values_from = concentration,
+    names_prefix = "contaminant"
+  ) %>% 
+  ungroup()
+colnames(pol) <- c("time","ozone","NOx","CO","NO2","NO","SO2","PM25")
+pol$index <- seq(1,156, by=1)
+
+```
+
+```{r linear model all pol}
+set.seed(42)
+# Generate 90-10% training-testing split of the reviews
+all_ids = pol$index
+train_ids = sample(all_ids, length(pol$index)*0.8)
+test_ids = setdiff(all_ids, train_ids)
+train <- pol[pol$index %in% train_ids , ]
+test <- pol[pol$index %in% test_ids, ]
+train1 <- train%>%
+  select(-c("index","time"))
+test1 <- test %>%
+  select(-c("index","time"))
+
+reg_mod <- lm(ozone~.,data=train1)
+predicted= predict(reg_mod,test1)
+
+df <- data.frame(predicted, test$time, test$ozone)
+df$error <- abs(((df$predicted-df$test.ozone)/df$test.ozone))
+df$accuracy <- 1-df$error
+accuracy <- round(mean(df$accuracy),2)
+df <- df %>% rename(C("time"="test.time", "ozone"="test.ozone"))
+
+
+plot_ly(df, x = ~test.ozone, y = ~predicted, type = "scatter") %>%
+  layout(
+         xaxis = list(title = 'Actual ozone concentration (ppm)',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         yaxis = list(title = 'Predicted ozone concentration (ppm)',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         plot_bgcolor='#e5ecf6')
+
+plot_ly(df, x = ~test.time, y = ~predicted, type = "scatter") %>%
+  layout(
+         xaxis = list(title = 'Date',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         yaxis = list(title = 'Predicted ozone concentration (ppm)',
                       zerolinecolor = '#ffff',
                       zerolinewidth = 2,
                       gridcolor = 'ffff'),
