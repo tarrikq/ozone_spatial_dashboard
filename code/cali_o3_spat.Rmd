@@ -56,7 +56,7 @@ ozone_yr_data <- as.data.frame(html_table(html_nodes(wiki_ozone_yr, "table")[[1]
 pollutant_data <- read_csv("C:/Users/Tarri/Desktop/portfolio_projects/ozone_spat_dashboard/data/pollutant.csv")
 ```
 
-```{r data pull}
+```{r data pull, echo=FALSE, message=FALSE,warning=FALSE}
 ## This chunk will pull data for the pollutants and the given years. 
 ## It will save out the dataframe to a csv that is called in the code above.
 # pollutants <- c("OZONE","NOX","CO","NO2","NO","SO2","PM25")
@@ -245,7 +245,7 @@ pol$index <- seq(1,156, by=1)
 # Correlation of parameters
 Looking at the correlation plot, we see that a few parameters are highly correlated (positive and negative), however many do not seem to be correlated at all. Of note, ozone appears to be negatively correlated with No, NO~x~ and, NO~2~ which is to be expected since NO~x~ will react in the atmosphere to produce ozone. Since there are some correlation between these contaminants, a simple linear regression model was trained to predict ozone concentrations given the other pollutant concentrations.
 
-```{r correlation plot}
+```{r correlation plot, echo=FALSE, message=FALSE,warning=FALSE}
 M <- pol[-length(pol$ozone), ]
 M <- M %>%
     dplyr::mutate(., 
@@ -286,9 +286,9 @@ corr_lin <- round(cor(df$test.ozone, df$predicted),2)
 # Building a Linear Model
 The linear regression model was trained using a 80:20 split for training and testing data at random time points throughout the main dataframe. The correlation between the actual ozone concentration and the predicted values was found to be `r corr_lin`. This correlation is not entirely bad, but other machine learning models may be able to get a better fit. By comparing the actual vs. predicted values over time, we see that the linear model follows the general trend of the concentrations, but does over fit occasionally.
 
-```{r linear model plots}
+```{r linear model plots, echo=FALSE, message=FALSE,warning=FALSE}
 
-plot_ly(df, x = ~test.ozone, y = ~predicted, type = "scatter") %>%
+plot_ly(df, x = ~test.ozone, y = ~predicted, type = "scatter", mode="markers") %>%
   layout(title =paste("Correlation is", round(cor(df$test.ozone, df$predicted),2)),
          xaxis = list(title = 'Actual ozone concentration (ppm)',
                       zerolinecolor = '#ffff',
@@ -351,19 +351,19 @@ params <- list(booster = "gbtree",
               objective = "reg:logistic"
                )
 #Cross-validation to find the appropriate number of iterations to use in the model
-xgb.tab <- xgb.cv(data = dtrain
+xgb_iter <- xgb.cv(data = dtrain
                   , param = params
                   , maximize = FALSE, evaluation = "rmse", nrounds = 100
-                  , nthreads = 10, nfold = 2, early_stopping_round = 10)
+                  , nthreads = 10, nfold = 2, early_stopping_round = 10,verbose=0, showsd=FALSE)
 
 
 
 #Setting the best number of iterations and training the model
-num_iterations = xgb.tab$best_iteration
+num_iterations = xgb_iter$best_iteration
 
 model <- xgb.train(data = dtrain
                                , param = params
-                               , maximize = FALSE, evaluation = 'rmse', nrounds = num_iterations)
+                               , maximize = FALSE, eval_metric = 'rmse', nrounds = num_iterations, verbose=0)
 
 pred <- predict(model, dtest)
 
@@ -372,10 +372,10 @@ corr_xg <- round(cor(full_data$ozone, full_data$prediction),2)
 ```
 
 # XGBoost predictive model
-  XGBoost is a variation of the Gradient Boosted Decision Trees algorithm. Essentially, this work by going through cycles that repeatedly build new models and combine them into a group of models. The cycle begins by calculating the errors in an existing model for each observation in the data set. A new model is then built to predict these errors. The predictions are then  moved from this error-predicting model to the group of models. This cycle continues for the number of iterations specified.
-  The model was built using a logistic regression objective function, with `r num_iterations`. The number of iterations was optimized by running cross validation on the dataset for 100 iterations and finding the stabilization point. Since this is time series data, the time data was split into month and year columns to account for seasonal variability. The correlation between the actual ozone concentration and the predicted was found to be `r corr_xg`. This value is much higher than the basic linear model and could be further optimized by varying other model parameters such as early stopping rounds, objective function, and max depth. 
-```{r xgboost plots}
-plot_ly(full_data, x = ~ozone, y = ~prediction, type = "scatter") %>%
+XGBoost is a variation of the Gradient Boosted Decision Trees algorithm. Essentially, this work by going through cycles that repeatedly build new models and combine them into a group of models. The cycle begins by calculating the errors in an existing model for each observation in the data set. A new model is then built to predict these errors. The predictions are then  moved from this error-predicting model to the group of models. This cycle continues for the number of iterations specified.      
+The model was built using a logistic regression objective function, with `r num_iterations`. The number of iterations was optimized by running cross validation on the dataset for 100 iterations and finding the stabilization point. Since this is time series data, the time data was split into month and year columns to account for seasonal variability. The correlation between the actual ozone concentration and the predicted was found to be `r corr_xg`. This value is much higher than the basic linear model and could be further optimized by varying other model parameters such as early stopping rounds, objective function, and max depth. When plotting the actual and predicted concentrations over time, we can see that the XGBoost model follows the actual trend much more closely than the linear model, but could still be tuned for proper fitting.
+```{r xgboost plots, echo=FALSE, message=FALSE,warning=FALSE}
+plot_ly(full_data, x = ~ozone, y = ~prediction, type = "scatter", mode="markers") %>%
   layout(title =paste("Correlation is", round(cor(full_data$ozone, full_data$prediction),2)),
          xaxis = list(title = 'Actual ozone concentration (ppm)',
                       zerolinecolor = '#ffff',
@@ -387,8 +387,20 @@ plot_ly(full_data, x = ~ozone, y = ~prediction, type = "scatter") %>%
                       gridcolor = 'ffff'),
          plot_bgcolor='#e5ecf6')
 
-
+plot_ly(full_data, x = ~date, y = ~prediction, type = "scatter", mode="lines", name="Predicted") %>%
+  add_trace(df, x=~date, y = ~ozone, name="Actual") %>%
+  layout(
+         xaxis = list(title = 'Date',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         yaxis = list(title = 'Predicted ozone concentration (ppm)',
+                      zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         plot_bgcolor='#e5ecf6')
 ```
+
 
 
 
