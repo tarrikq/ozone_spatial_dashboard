@@ -35,6 +35,7 @@ library(tibble)
 library(zoo)
 library(xgboost)
 library(stats)
+library(corrplot)
 ```
 
 # Background
@@ -193,7 +194,7 @@ ozone_temp %>%
 ```
 
 # Ozone Concentration Over Time
-We saw previously that the annual average ozone concentration was decreasing and becoming less sparse over time. To see how the concentration at all locations has changed over time, the scatterplot below was created. This shows a steeps decrease in ozone concentration from the year 1980 to 2000, with a plateau from 2000 to 2005.
+We saw previously that the annual average ozone concentration was decreasing and the range was narrowing. To see how the concentration at all locations has changed over time, the scatterplot below was created. This shows a steeps decrease in ozone concentration from the year 1980 to 2000, with a plateau from 2000 to 2005.
 ```{r boxplot, echo=FALSE, message=FALSE,warning=FALSE}
 ozone_box <- ozone_temp %>%
   select(c("LOCATION","ANNUAL", "Date")) 
@@ -215,7 +216,9 @@ plot_ly(ozone_box, x = ~Date, y = ~ANNUAL, color = ~LOCATION, type = "scatter") 
 
 ```
 
-```{r all polutants}
+
+
+```{r all polutants, echo=FALSE, message=FALSE,warning=FALSE}
 poll_data <- pollutant_data
 poll_data$month <- gsub('[[:digit:]]+', ' ', poll_data$month)
 poll_data$month <- str_trim(poll_data$month, side = c("both"))
@@ -239,7 +242,24 @@ pol$index <- seq(1,156, by=1)
 
 ```
 
-```{r linear model all pol}
+# Correlation of parameters
+Looking at the correlation plot, we see that a few parameters are highly correlated (positive and negative), however many do not seem to be correlated at all. Of note, ozone appears to be negatively correlated with No, NO~x~ and, NO~2~ which is to be expected since NO~x~ will react in the atmosphere to produce ozone. Since there are some correlation between these contaminants, a simple linear regression model was trained to predict ozone concentrations given the other pollutant concentrations.
+
+```{r correlation plot}
+M <- pol[-length(pol$ozone), ]
+M <- M %>%
+    dplyr::mutate(., 
+                  months = lubridate::month(time),
+                  years = lubridate::year(time))
+M <- M %>% select(-c("time","index"))
+C = cor(M)
+corrplot(C, method = 'ellipse', order = 'AOE', type = 'upper')
+
+
+```
+
+
+```{r linear model all pol, echo=FALSE, message=FALSE,warning=FALSE}
 set.seed(42)
 # Generate 90-10% training-testing split of the reviews
 all_ids = pol$index
@@ -259,9 +279,14 @@ df <- data.frame(predicted, test$time, test$ozone)
 df$error <- abs(((df$predicted-df$test.ozone)/df$test.ozone))
 df$accuracy <- 1-df$error
 accuracy <- round(mean(df$accuracy),2)
-df <- df %>% rename(C("time"="test.time", "ozone"="test.ozone"))
 r_sqr <- round(summary(reg_mod)$r.squared, 2)
+corr_lin <- round(cor(df$test.ozone, df$predicted),2)
+```
 
+# Building a Linear Model
+The linear regression model was trained using a 80:20 split for training and testing data at random time points throughout the main dataframe. The correlation between the actual ozone concentration and the predicted values was found to be `r corr_lin`. This correlation is not entirely bad, but other machine learning models may be able to get a better fit. By comparing the actual vs. predicted values over time, we see that the linear model follows the general trend of the concentrations, but does over fit occasionally.
+
+```{r linear model plots}
 
 plot_ly(df, x = ~test.ozone, y = ~predicted, type = "scatter") %>%
   layout(title =paste("Correlation is", round(cor(df$test.ozone, df$predicted),2)),
@@ -275,7 +300,8 @@ plot_ly(df, x = ~test.ozone, y = ~predicted, type = "scatter") %>%
                       gridcolor = 'ffff'),
          plot_bgcolor='#e5ecf6')
 
-plot_ly(df, x = ~test.time, y = ~predicted, type = "scatter") %>%
+plot_ly(df, x = ~test.time, y = ~predicted, type = "scatter", mode="lines", name="Predicted") %>%
+  add_trace(df, x=~test.time, y = ~test.ozone, name="Actual") %>%
   layout(
          xaxis = list(title = 'Date',
                       zerolinecolor = '#ffff',
@@ -287,9 +313,10 @@ plot_ly(df, x = ~test.time, y = ~predicted, type = "scatter") %>%
                       gridcolor = 'ffff'),
          plot_bgcolor='#e5ecf6')
 
+
 ```
 
-```{r xgboost}
+```{r xgboost, echo=FALSE, message=FALSE,warning=FALSE}
 set.seed(42)
 xg_pol <- pol[-length(pol$ozone), ]
 xg_pol <- xg_pol %>%
@@ -315,7 +342,8 @@ dtest <- xgb.DMatrix(data = xg_test_in, label= xg_test_out)
 ```
 
 
-```{r xg model}
+```{r xg model, echo=FALSE, message=FALSE,warning=FALSE}
+set.seed(42)
 ## Setting the parameters for crossvalidation and model training
 params <- list(booster = "gbtree",
               eta=0.4,
@@ -340,8 +368,13 @@ model <- xgb.train(data = dtrain
 pred <- predict(model, dtest)
 
 full_data <- data.frame("ozone" = xg_test$ozone , "prediction" = pred, "date"=xg_test$time)
+corr_xg <- round(cor(full_data$ozone, full_data$prediction),2)
+```
 
-
+# XGBoost predictive model
+  XGBoost is a variation of the Gradient Boosted Decision Trees algorithm. Essentially, this work by going through cycles that repeatedly build new models and combine them into a group of models. The cycle begins by calculating the errors in an existing model for each observation in the data set. A new model is then built to predict these errors. The predictions are then  moved from this error-predicting model to the group of models. This cycle continues for the number of iterations specified.
+  The model was built using a logistic regression objective function, with `r num_iterations`. The number of iterations was optimized by running cross validation on the dataset for 100 iterations and finding the stabilization point. Since this is time series data, the time data was split into month and year columns to account for seasonal variability. The correlation between the actual ozone concentration and the predicted was found to be `r corr_xg`. This value is much higher than the basic linear model and could be further optimized by varying other model parameters such as early stopping rounds, objective function, and max depth. 
+```{r xgboost plots}
 plot_ly(full_data, x = ~ozone, y = ~prediction, type = "scatter") %>%
   layout(title =paste("Correlation is", round(cor(full_data$ozone, full_data$prediction),2)),
          xaxis = list(title = 'Actual ozone concentration (ppm)',
@@ -359,106 +392,3 @@ plot_ly(full_data, x = ~ozone, y = ~prediction, type = "scatter") %>%
 
 
 
-# Predictive model
-Since the ozone concentration appears to be decreasing linearly with time, a linear model was trained to predict ozone concentration. The training data was created using a 80 random split of the historic ozone data. You can test this model out yourself using your own data, just upload a csv file of data with columns like the table shown above! You can also use the historic testing data by clicking submit without uploading. The r-squared value for the trained model is `r r_sqr` The average model accuracy for this data is `r accuracy`.
-
-```{r ploting model, echo=FALSE, message=FALSE,warning=FALSE}
-
-plot_ly(full_data, x = ~ozone, y = ~prediction, type = "scatter") %>%
-  layout(title =paste("Correlation is", round(cor(full_data$ozone, full_data$prediction),2)),
-         xaxis = list(title = 'Actual ozone concentration (ppm)',
-                      zerolinecolor = '#ffff',
-                      zerolinewidth = 2,
-                      gridcolor = 'ffff'),
-         yaxis = list(title = 'Predicted ozone concentration (ppm)',
-                      zerolinecolor = '#ffff',
-                      zerolinewidth = 2,
-                      gridcolor = 'ffff'),
-         plot_bgcolor='#e5ecf6')
-
-plot_ly(full_data, x = ~date, y = ~predicted, type = "scatter") %>%
-  add_trace(full_data, x=~date, y = ~ozone) %>%
-  layout(
-         xaxis = list(title = 'Date',
-                      zerolinecolor = '#ffff',
-                      zerolinewidth = 2,
-                      gridcolor = 'ffff'),
-         yaxis = list(title = 'Predicted ozone concentration (ppm)',
-                      zerolinecolor = '#ffff',
-                      zerolinewidth = 2,
-                      gridcolor = 'ffff'),
-         plot_bgcolor='#e5ecf6')
-
-```
-
-```{r predictions, echo=FALSE, message=FALSE,warning=FALSE}
-kable(df, "html", caption="Predicted Ozone concentrations over time") %>%
-     kable_styling() %>%
-     scroll_box(width = "100%", height = "500px")
-
-
-
-
-
-
-```
-
-```{r}
-
-set.seed(42)
-library(reshape2)
-# pollutant_data$month <- gsub('[0-9]+', '', pollutant_data$month)
-# 
-# test <- dcast(pollutant_data, month + year ~ contaminant, value.var="concentration")
-
-# Generate 90-10% training-testing split of the reviews
-pollutant_data <- inner_join(pollutant_data)
-
-all_ids = pollutant_data$...1
-train_ids = sample(all_ids, length(pollutant_data$...1)*0.8)
-test_ids = setdiff(all_ids, train_ids)
-train <- pollutant_data[pollutant_data$...1 %in% train_ids , ]
-test <- pollutant_data[pollutant_data$...1 %in% test_ids, ]
-
-train$month <- gsub('[0-9]+', '', train$month)
-train <- dcast(train, month + year ~ contaminant, value.var="concentration")
-
-test$month <- gsub('[0-9]+', '', test$month)
-test <- dcast(test, month + year ~ contaminant, value.var="concentration")
-
-test <-test %>%
-    select(-c("month","year"))
-train <- train%>%
-  select(-c("month","year"))
-test1 <- test %>%
-  select(-c("OZONE"))
-
-
-# Train the model using the training sets and check score
-set.seed(42)
-linear <- lm(OZONE ~ ., data = train)
-kable(head(train), "html", caption="Summary of linear model statistics") %>%
-     kable_styling() %>%
-     scroll_box(width = "100%", height = "500px")
-r_sqr <- round(summary(linear)$r.squared, 2)
-
-#Predict Output
-predicted= predict(linear,test1)
-
-# Build a dataframe of values from predicted outcomes and actual outcomes
-df <- data.frame(predicted, test$Date, test$ANNUAL)
-df$error <- abs(((df$predicted-df$test.ANNUAL)/df$test.ANNUAL))
-df$accuracy <- 1-df$error
-df <- df%>%
-  rename(c("Actual"="test.ANNUAL","Date"="test.Date"))
-accuracy <- round(mean(df$accuracy),2)
-```
-
-
-```{r}
-
-
-
-df <- cbind(predicted, test$ANNUAL)
-df
-```
